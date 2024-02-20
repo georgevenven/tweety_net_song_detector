@@ -1,5 +1,6 @@
 import torch 
 import json
+import os 
 from model import TweetyNet
 
 def load_weights(dir, model):
@@ -66,20 +67,7 @@ def load_model(config_path, weight_path=None):
     """
     config = load_config(config_path)
 
-    model = TweetyNet(
-        d_transformer=config['d_transformer'], 
-        nhead_transformer=config['nhead_transformer'],
-        embedding_dim=config['embedding_dim'],
-        num_labels=config['num_clusters'],
-        dropout=config['dropout'],
-        dim_feedforward=config['dim_feedforward'],
-        transformer_layers=config['transformer_layers'],
-        m=config['m'],
-        p=config['p'],
-        alpha=config['alpha'],
-        pos_enc_type=config['pos_enc_type'],
-        length=config['context']
-    )
+    model = TweetyNet(input_shape=(1, 512, config['context_size']), hidden_size=config['hidden_size'], rnn_dropout=0.2, num_classes=1)
 
     if weight_path:
         load_weights(dir=weight_path, model=model)
@@ -87,3 +75,21 @@ def load_model(config_path, weight_path=None):
         print("Model loaded with randomly initiated weights.")
 
     return model
+
+def save_model_config_and_weights(trainer, config, model_name):
+    # Create directory for the model if it doesn't exist
+    model_dir = os.path.join('/home/george-vengrovski/Documents/projects/tweety_net_song_detector/files', model_name)
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+    
+    # Save config to a JSON file instead of a Python file
+    config_path = os.path.join(model_dir, 'config.json')  # Change the file extension to .json
+    with open(config_path, 'w') as config_file:
+        json.dump(config, config_file, indent=4)  # Use json.dump to write the config dictionary to the file
+    
+    # Assuming trainer.model holds the final model state
+    weights_path = os.path.join(model_dir, 'weights.pth')
+    torch.save(trainer.model.state_dict(), weights_path)
+    
+    print(f'Model config saved to {config_path}')
+    print(f'Model weights saved to {weights_path}')

@@ -50,8 +50,7 @@ class CollateFunctionSongDetection:
             if spectogram.shape[1] < self.segment_length:
                 pad_amount = self.segment_length - spectogram.shape[1]
                 spectogram = F.pad(spectogram, (0, pad_amount), 'constant', 0)
-                ground_truth_label = F.pad(ground_truth_label, (pad_amount,), 'constant', 0)  # Padding labels with -1 or another flag value
-                ground_truth_labels_processed.append(ground_truth_label)
+                ground_truth_label = F.pad(ground_truth_label.unsqueeze(0), (0, pad_amount), 'constant', 0).squeeze(0)
 
             # Truncate if larger than context window
             if spectogram.shape[1] > self.segment_length:
