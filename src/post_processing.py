@@ -92,3 +92,62 @@ def process_files(src):
 
         except Exception as e:
             print(f"Failed to process file {file}: {str(e)}")
+
+# def plot_spectrogram_with_processed_song(file_name, spectrogram, smoothed_song, processed_song, output_dir):
+#     fig, ax = plt.subplots(figsize=(20, 6))
+#     ax.imshow(spectrogram, aspect='auto', origin='lower')
+#     ax.set_ylabel('Frequency [Hz]')
+#     ax.set_xlabel('Time [sec]')
+
+#     # Plot smoothed classification line
+#     smoothed_times = np.arange(len(smoothed_song)) + 50  # Offset for alignment
+#     ax.plot(smoothed_times, smoothed_song * (spectrogram.shape[0] - 1), color='magenta', label='Smoothed Classification Sigmoid', alpha=0.7)
+
+#     # Add color bar below spectrogram based on processed song
+#     for i in range(len(processed_song)):
+#         color = 'red' if processed_song[i] > 0 else 'blue'
+#         ax.axhspan(ymin=-5, ymax=0, xmin=(i + 50) / len(smoothed_song), xmax=(i + 51) / len(smoothed_song), color=color)
+
+#     ax.set_ylim(bottom=-5)  # Adjust y-axis to include the new bar
+#     ax.legend(loc='upper right')
+
+#     # Save the plot
+#     output_file_path = os.path.join(output_dir, f"{os.path.splitext(file_name)[0]}_detection.png")
+#     plt.imshow()
+#     plt.show()
+
+#     # plt.savefig(output_file_path, bbox_inches='tight')
+#     # plt.close(fig)
+            
+def plot_spectrogram_with_processed_song(directory, file_name, spectrogram, smoothed_song, processed_song):
+    fig, ax = plt.subplots(figsize=(20, 6))
+    ax.imshow(spectrogram, aspect='auto', origin='lower')
+    ax.set_ylabel('Frequency [Hz]')
+    ax.set_xlabel('Time [sec]')
+
+    # Plot smoothed classification line
+    smoothed_times = np.arange(len(smoothed_song)) + 50  # Offset for alignment
+    ax.plot(smoothed_times, smoothed_song * (spectrogram.shape[0] - 1), color='magenta', label='Smoothed Classification Sigmoid', alpha=0.7)
+
+    # Add color bar below spectrogram based on processed song
+    for i in range(len(processed_song)):
+        color = 'red' if processed_song[i] > 0 else 'blue'
+        ax.axhspan(ymin=-5, ymax=0, xmin=(i + 50) / len(smoothed_song), xmax=(i + 51) / len(smoothed_song), color=color)
+
+    ax.set_ylim(bottom=-5)  # Adjust y-axis to include the new bar
+    ax.legend(loc='upper right')
+
+    if directory is not None:
+        # Ensure the directory exists
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        
+        # Save the plot to the specified directory with the given file_name
+        plt.savefig(os.path.join(directory, file_name))
+        print(f"Plot saved to {os.path.join(directory, file_name)}")
+    else:
+        # If directory is None, display the plot directly to the user
+        plt.show()
+
+    # Close the plot to free up memory
+    plt.close(fig)
