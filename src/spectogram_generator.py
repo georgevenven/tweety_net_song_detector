@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 
 class WavtoSpec:
-    def __init__(self, src_dir, dst_dir):
+    def __init__(self, src_dir=None, dst_dir=None):
         self.src_dir = src_dir
         self.dst_dir = dst_dir
 
@@ -33,7 +33,7 @@ class WavtoSpec:
                     self.convert_to_spectrogram(full_path)
                     pbar.update(1)  # Update the progress bar for each file
     
-    def convert_to_spectrogram(self, file_path, min_length_ms=1000):
+    def convert_to_spectrogram(self, file_path, min_length_ms=1000, save_file=True):
         try:
             # Read the WAV file
             samplerate, data = wavfile.read(file_path)
@@ -70,26 +70,20 @@ class WavtoSpec:
             Sxx_log_clipped = np.clip(Sxx_log, a_min=clipping_level, a_max=None)
             Sxx_log_normalized = (Sxx_log_clipped - np.min(Sxx_log_clipped)) / (np.max(Sxx_log_clipped) - np.min(Sxx_log_clipped))
 
-            # # Visualization (optional)
-            # plt.imshow(Sxx_log_normalized, aspect='auto', origin='lower', extent=[t.min(), t.max(), f.min(), f.max()])
-            # plt.title('Spectrogram')
-            # plt.ylabel('Frequency [Hz]')
-            # plt.xlabel('Time [sec]')
-            # plt.colorbar(format='%+2.0f dB')
-            # plt.show()
+            if save_file:
+                # Assuming label is an integer or float
+                labels = np.full((Sxx_log_normalized.shape[1],), 0)  # Adjust the label array as needed
 
-            # Assuming label is an integer or float
-            labels = np.full((Sxx_log_normalized.shape[1],), 0)  # Adjust the label array as needed
+                # Define the path where the spectrogram will be saved
+                spec_filename = os.path.splitext(os.path.basename(file_path))[0]
+                spec_file_path = os.path.join(self.dst_dir, spec_filename + '.npz')
+                # Saving the spectrogram and the labels
+                np.savez_compressed(spec_file_path, s=Sxx_log_normalized, labels=labels)
+                # Print out the path to the saved file
+                print(f"Spectrogram saved to {spec_file_path}")
+            else:
+                return Sxx_log_normalized
 
-            # Define the path where the spectrogram will be saved
-            spec_filename = os.path.splitext(os.path.basename(file_path))[0]
-            spec_file_path = os.path.join(self.dst_dir, spec_filename + '.npz')
-
-            # Saving the spectrogram and the labels
-            np.savez_compressed(spec_file_path, s=Sxx_log_normalized, labels=labels)
-
-            # Print out the path to the saved file
-            print(f"Spectrogram saved to {spec_file_path}")
 
         except ValueError as e:
             print(f"Error reading {file_path}: {e}")
@@ -117,6 +111,17 @@ class WavtoSpec:
         plt.xlabel('Time [sec]')
         plt.colorbar(format='%+2.0f dB')
         plt.show()
+
+    def process_file(self, file_path):
+        if not file_path.lower().endswith('.wav'):
+            print(f"File {file_path} is not a WAV file.")
+            return
+
+        if not os.path.exists(file_path):
+            print(f"File {file_path} does not exist.")
+            return
+
+        return self.convert_to_spectrogram(file_path, save_file=False)
 
 # Helper function to find the next power of two
 def nextpow2(x):
@@ -158,9 +163,9 @@ def copy_yarden_data(src_dirs, dst_dir):
 
 
 # Usage:
-wav_file_path = "/home/george-vengrovski/Documents/data/USA5336_test_sorter_GV/17"
-npz_output_file_path = "/home/george-vengrovski/Documents/data/temp"
-wav_to_spec = WavtoSpec(wav_file_path, npz_output_file_path)
-wav_to_spec.process_directory()
+# wav_file_path = "/home/george-vengrovski/Documents/data/USA5336_test_sorter_GV/17"
+# npz_output_file_path = "/home/george-vengrovski/Documents/data/temp"
+# wav_to_spec = WavtoSpec(wav_file_path, npz_output_file_path)
+# wav_to_spec.process_directory()
 # wav_to_spec.save_npz()
 # wav_to_spec.visualize_random_spectrogram()
