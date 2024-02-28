@@ -123,7 +123,7 @@ def plot_spectrogram_with_processed_song(directory, file_name, spectrogram, smoo
     fig, ax = plt.subplots(figsize=(20, 6))
     ax.imshow(spectrogram, aspect='auto', origin='lower')
     ax.set_ylabel('Frequency [Hz]')
-    ax.set_xlabel('Time [sec]')
+    ax.set_xlabel('Time Bins')
 
     # Plot smoothed classification line
     smoothed_times = np.arange(len(smoothed_song)) + 50  # Offset for alignment
@@ -143,6 +143,7 @@ def plot_spectrogram_with_processed_song(directory, file_name, spectrogram, smoo
             os.makedirs(directory)
         
         # Save the plot to the specified directory with the given file_name
+        file_name += ".png"
         plt.savefig(os.path.join(directory, file_name))
         print(f"Plot saved to {os.path.join(directory, file_name)}")
     else:

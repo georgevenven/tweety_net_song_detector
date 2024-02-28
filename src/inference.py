@@ -11,6 +11,7 @@ import torch
 import numpy as np
 import pandas as pd 
 from scipy.io import wavfile
+from pathlib import Path
 
 class Inference():
     def __init__(self, input_path=None, output_path=None, plot_spec_results=False, model_path=None, threshold=.5, min_length=500, pad_song=50):
@@ -40,7 +41,7 @@ class Inference():
             if not os.path.exists(self.output_path):
                 os.makedirs(os.path.join(self.output_path, 'specs'))
         
-        self.database = pd.DataFrame(columns=["song_name", "directory", "song_timebins", "song_ms"])
+        self.database = pd.DataFrame(columns=["song_name", "directory", "song_status", "song_probabilties", "song_ms", "total_song_length"])
 
     def calculate_length_ms(sample_rate, data):
         """
@@ -63,12 +64,23 @@ class Inference():
         length_ms = duration_seconds * 1000
 
         return length_ms
-    
-
-
+        
     def sort_all_songs(self):
         wav_to_spec = WavtoSpec()
         rows_to_add = []  # Initialize an empty list to collect rows
+
+        # First, calculate the total number of songs to process
+        total_songs = 0
+        for bird in os.listdir(self.input_path):
+            bird_path = os.path.join(self.input_path, bird)
+            if os.path.isdir(bird_path):
+                for day in os.listdir(bird_path):
+                    day_path = os.path.join(bird_path, day)
+                    if os.path.isdir(day_path):
+                        total_songs += len([song for song in os.listdir(day_path) if os.path.isfile(os.path.join(day_path, song))])
+
+        # Initialize tqdm progress bar
+        song_progress = tqdm(total=total_songs, desc="Sorting songs")
 
         for bird in tqdm(os.listdir(self.input_path), desc="Processing birds"):
             bird_path = os.path.join(self.input_path, bird)
@@ -86,6 +98,8 @@ class Inference():
 
                     if spec is not None:
                         sample_rate, wavfile_signal = wavfile.read(song_src_path)
+
+
                         spec_mean = spec.mean()
                         spec_std = spec.std()
                         spec = (spec - spec_mean) / spec_std
@@ -94,14 +108,49 @@ class Inference():
                         smoothed_song = post_processing.moving_average(predictions, window_size=100)
                         processed_song = post_processing.post_process_segments(smoothed_song, min_length=self.min_length, pad_song=self.pad_song, threshold=self.threshold)
 
-                        song_name = os.path.basename(song).split(".")[0]  # Get the base name of the file and remove the extension
-
+                        song_name = Path(song).stem
                         if self.plot_spec_results:
                             post_processing.plot_spectrogram_with_processed_song(file_name=song_name, spectrogram=spec, smoothed_song=smoothed_song, processed_song=processed_song, directory=os.path.join(self.output_path, 'specs'))
-                        
-                        song_ms = [index * (1000 / sample_rate) for index in processed_song]
-                        new_row = {"song_name": song_name, "directory": song_src_path, "song_timebins": processed_song, "song_ms": song_ms}
+
+                        song_status = np.where(processed_song > self.threshold, 1, 0)
+
+                        # Calculate the duration of each timebin based on the wav file
+                        wav_length_ms = (len(wavfile_signal) / sample_rate) * 1000  # Total duration of the wav file in milliseconds
+                        timebin_duration_ms = wav_length_ms / len(song_status)  # Duration of each timebin in milliseconds
+
+                        # Initialize song_ms as an empty list
+                        song_ms = []
+                        start_index = None  # Use index to track the start of a song segment
+
+                        for index, status in enumerate(song_status):
+                            if status == 1 and start_index is None:
+                                # A new song segment starts
+                                start_index = index  # Note the start index of the segment
+                            elif status == 0 and start_index is not None:
+                                # The current song segment ends
+                                end_index = index  # Note the end index of the segment
+                                start_ms = start_index * timebin_duration_ms  # Calculate start ms of the segment
+                                end_ms = end_index * timebin_duration_ms  # Calculate end ms of the segment
+                                song_ms.append((start_ms, end_ms))  # Append the start and end ms as a tuple
+                                start_index = None  # Reset start_index for the next segment
+
+                        # Check for a segment that might end at the last index
+                        if start_index is not None:
+                            end_index = len(song_status)  # The end index is the length of the song_status array
+                            start_ms = start_index * timebin_duration_ms  # Calculate start ms of the last segment
+                            end_ms = end_index * timebin_duration_ms  # Calculate end ms of the last segment
+                            song_ms.append((start_ms, end_ms))  # Append the start and end ms as a tuple
+
+                        song_probabilties = processed_song
+                        total_song_length = np.sum(song_status) * timebin_duration_ms
+
+                        new_row = {"song_name": song_name, "directory": song_src_path, "song_status": song_status.tolist(), "song_probabilties": song_probabilties.tolist(), "song_ms": song_ms, "total_song_length": total_song_length}
                         rows_to_add.append(new_row)  # Append the new row to the list
+
+                        song_progress.update(1)  # Update progress bar for each song processed
+
+        # Close the progress bar
+        song_progress.close()
 
         # After the loop, concatenate all new rows to the DataFrame at once
         if rows_to_add:  # Check if there are any rows to add
@@ -113,7 +162,8 @@ class Inference():
 
     def sort_single_song(self, song_path):
         wav_to_spec = WavtoSpec()
-        song_name = os.path.basename(song_path).split(".")[0]  # Get the base name of the file and remove the extension
+        song_name = Path(song_path).stem 
+
 
         spec = wav_to_spec.process_file(song_path)
         if spec is None:
@@ -151,5 +201,6 @@ class Inference():
         post_processing.plot_spectrogram_with_processed_song(directory=None, file_name=song_name, spectrogram=spectrogram, smoothed_song=smoothed_song, processed_song=processed_song)
 
 
-sorter = Inference(input_path = "/home/george-vengrovski/Documents/data/song_sorter_test", output_path = "/home/george-vengrovski/Documents/projects/tweety_net_song_detector/temp", plot_spec_results=True, model_path="/home/george-vengrovski/Documents/projects/tweety_net_song_detector/files/sorter1")
+sorter = Inference(input_path = "/home/george-vengrovski/Documents/data/tweetyNET-song-detector/non_labeled_testing", output_path = "/home/george-vengrovski/Documents/data/tweetyNET-song-detector/non_labeled_testing_results", plot_spec_results=True, model_path="//home/george-vengrovski/Documents/projects/tweety_net_song_detector/files/sorter-1")
 sorter.sort_all_songs()
+# sorter.visualize_single_spec("USA5325_45227.25841726_10_28_7_10_41")
