@@ -1,0 +1,8 @@
+{
+    "model_name": "sorter-1",
+    "hidden_size": 32,
+    "context_size": 4096,
+    "batch_size": 24,
+    "num_batches_train": 200,
+    "lr": 0.0003
+}
