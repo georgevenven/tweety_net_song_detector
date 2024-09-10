@@ -12,23 +12,38 @@ import post_processing
 import argparse
 import boto3
 
+def get_default_model_path():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(script_dir, "..", "files", "sorter-1")
+
+def get_default_output_path():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(script_dir, "..", "output")
+
 class Inference:
     def __init__(self, input_path=None, output_path=None, plot_spec_results=False, model_path=None, threshold=.5, min_length=500, pad_song=50):
         self.input_path = input_path
-        self.output_path = output_path
+        self.output_path = output_path if output_path else get_default_output_path()
         self.plot_spec_results = plot_spec_results
         self.threshold = threshold
         self.min_length = min_length
         self.pad_song = pad_song
 
+        if model_path is None:
+            model_path = get_default_model_path()
+
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         weight_path = os.path.join(model_path, "weights.pth")
         config_path = os.path.join(model_path, "config.json")
+        
+        if not os.path.exists(weight_path) or not os.path.exists(config_path):
+            raise FileNotFoundError(f"Model files not found at {model_path}")
+
         model = load_model(weight_path=weight_path, config_path=config_path)
         self.model = model.to(self.device)
 
-        if not os.path.exists(self.output_path):
-            os.makedirs(self.output_path)
+        # Create output directory if it doesn't exist
+        os.makedirs(self.output_path, exist_ok=True)
         if plot_spec_results:
             os.makedirs(os.path.join(self.output_path, 'specs'), exist_ok=True)
         
@@ -121,9 +136,9 @@ class Inference:
 def main():
     parser = argparse.ArgumentParser(description="Bird song inference")
     parser.add_argument("--mode", choices=["aws", "local_file", "local_dir"], default="local_dir", help="Mode of operation")
-    parser.add_argument("--input", help="Input file or directory path for local modes")
-    parser.add_argument("--output", help="Output directory path for local modes")
-    parser.add_argument("--model", help="Path to the model directory")
+    parser.add_argument("--input", help="Input file or directory path")
+    parser.add_argument("--output", default=get_default_output_path(), help="Output directory path")
+    parser.add_argument("--model", default=get_default_model_path(), help="Path to the model directory")
     parser.add_argument("--plot_spec", action="store_true", help="Generate spectrograms")
     args = parser.parse_args()
 
@@ -132,8 +147,8 @@ def main():
         bucket_name = os.environ.get('bucket_name')
         prefix = os.environ.get('prefix')
         filename = os.environ.get('filename')
-        model_path = "/path/to/model"  # Update this to the correct path in your Docker image
-        output_path = "/tmp/output"  # Temporary output directory
+        model_path = args.model
+        output_path = args.output
 
         if bucket_name and prefix and filename:
             s3 = boto3.client('s3')
@@ -141,13 +156,13 @@ def main():
             s3.download_file(bucket_name, filename, local_file_path)
 
             sorter = Inference(model_path=model_path, output_path=output_path, plot_spec_results=args.plot_spec)
-            output_csv_path = sorter.sort_single_song(local_file_path)
+            sorter.sort_single_song(local_file_path)
 
             # Upload results back to S3
             s3.upload_file(
-                output_csv_path,
+                os.path.join(output_path, 'results.csv'),
                 bucket_name,
-                f"{prefix}/activity_detection/{os.path.basename(output_csv_path)}"
+                f"{prefix}/activity_detection/results.csv"
             )
             if args.plot_spec:
                 spec_file = os.path.join(output_path, 'specs', f"{Path(filename).stem}_spectrogram.png")
@@ -160,17 +175,17 @@ def main():
         else:
             print("Error: Missing required environment variables for AWS mode")
     elif args.mode == "local_file":
-        if not args.input or not args.output or not args.model:
-            print("Error: --input, --output, and --model are required for local_file mode")
-            return
         sorter = Inference(model_path=args.model, output_path=args.output, plot_spec_results=args.plot_spec)
-        sorter.sort_single_song(args.input)
+        if args.input:
+            sorter.sort_single_song(args.input)
+        else:
+            print("Warning: No input file specified. Please provide an input file using --input.")
     elif args.mode == "local_dir":
-        if not args.input or not args.output or not args.model:
-            print("Error: --input, --output, and --model are required for local_dir mode")
-            return
         sorter = Inference(input_path=args.input, output_path=args.output, model_path=args.model, plot_spec_results=args.plot_spec)
-        sorter.sort_all_songs()
+        if args.input:
+            sorter.sort_all_songs()
+        else:
+            print("Warning: No input directory specified. Please provide an input directory using --input.")
     else:
         print("Invalid mode selected")
 

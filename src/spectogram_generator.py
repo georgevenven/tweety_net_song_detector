@@ -78,7 +78,7 @@ class WavtoSpec:
                 spec_filename = os.path.splitext(os.path.basename(file_path))[0]
                 spec_file_path = os.path.join(self.dst_dir, spec_filename + '.npz')
                 # Saving the spectrogram and the labels
-                np.savez_compressed(spec_file_path, s=Sxx_log_normalized, labels=labels)
+                np.save(spec_file_path, s=Sxx_log_normalized, labels=labels)
                 # Print out the path to the saved file
                 print(f"Spectrogram saved to {spec_file_path}")
             else:
