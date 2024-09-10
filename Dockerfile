@@ -27,8 +27,5 @@ WORKDIR /app
 # Ensure that the model weights and configuration are in the correct location
 RUN mkdir -p /app/files/sorter-1
 
-# Expose any necessary ports (e.g., if running a web server or API)
-EXPOSE 8080
-
 # Run the entry script which downloads the input file from S3 and runs inference
 ENTRYPOINT ["/app/entry.sh"]
