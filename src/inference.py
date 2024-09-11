@@ -12,6 +12,7 @@ import post_processing
 import argparse
 import librosa
 from scipy.signal import windows, spectrogram, ellip, filtfilt
+import time
 
 def get_default_model_path():
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -127,45 +128,65 @@ class Inference:
             )
 
     def sort_aws_files(self, audio, filenames, sr):
-        for data, filename in zip(audio, filenames):
+        print(f"Starting sort_aws_files. Number of audio files: {len(audio)}")
+        total_start_time = time.time()
+        
+        for i, (data, filename) in enumerate(zip(audio, filenames)):
+            file_start_time = time.time()
+            print(f"Processing file {i+1}/{len(audio)}: {filename}")
+            print(f"Audio data shape: {data.shape}")
+            
             # Calculate the length of the audio file in milliseconds
             length_in_ms = (data.shape[0] / sr) * 1000
-            # High-pass filter (adjust the filtering frequency as necessary)
+            print(f"Audio length: {length_in_ms:.2f} ms")
+            
+            # High-pass filter
+            filter_start_time = time.time()
+            print("Applying high-pass filter")
             b, a = ellip(5, 0.2, 40, 500/(sr/2), 'high')
             data = filtfilt(b, a, data)
-
-            # Canary song analysis parameters
+            print(f"Filtering time: {time.time() - filter_start_time:.2f} seconds")
+            
+            # Compute spectrogram
+            spec_start_time = time.time()
+            print("Computing spectrogram")
             NFFT = 1024  # Number of points in FFT
             step_size = 119  # Step size for overlap
-
-            # Calculate the overlap in samples
             overlap_samples = NFFT - step_size
-
-            # Use a Gaussian window
             window = windows.gaussian(NFFT, std=NFFT/8)
-
-            # Compute the spectrogram with the Gaussian window
             frequencies, times, spectrogram_data = spectrogram(data, fs=sr, window=window, nperseg=NFFT, noverlap=overlap_samples)
-
-            # Compute the spectrogram with the Gaussian window
-            f, t, Sxx = spectrogram(data, fs=sr, window=window, nperseg=NFFT, noverlap=overlap_samples)
-
-            # Convert to dB
-            Sxx_log = 10 * np.log10(Sxx)
-
-            # Post-processing: Clipping and Normalization
+            print(f"Spectrogram shape: {spectrogram_data.shape}")
+            print(f"Spectrogram computation time: {time.time() - spec_start_time:.2f} seconds")
+            
+            # Post-processing
+            post_start_time = time.time()
+            print("Post-processing spectrogram")
             clipping_level = -2  # dB
+            Sxx_log = 10 * np.log10(spectrogram_data)
             Sxx_log_clipped = np.clip(Sxx_log, a_min=clipping_level, a_max=None)
             spectrogram_data = (Sxx_log_clipped - np.min(Sxx_log_clipped)) / (np.max(Sxx_log_clipped) - np.min(Sxx_log_clipped))
-
+            print(f"Post-processing time: {time.time() - post_start_time:.2f} seconds")
+            
+            # Model inference
+            inference_start_time = time.time()
+            print("Running model inference")
             predictions = post_processing.process_spectrogram(model=self.model, spec=spectrogram_data, device=self.device, max_length=2048)
+            print(f"Model inference time: {time.time() - inference_start_time:.2f} seconds")
+            
+            # Post-processing
+            post_proc_start_time = time.time()
+            print("Applying post-processing")
             smoothed_song = post_processing.moving_average(predictions, window_size=100)
             processed_song = post_processing.post_process_segments(smoothed_song, min_length=self.min_length, pad_song=self.pad_song, threshold=self.threshold)
-
+            print(f"Post-processing time: {time.time() - post_proc_start_time:.2f} seconds")
+            
+            # Onset/offset detection
+            detection_start_time = time.time()
+            print("Detecting onsets and offsets")
             song_status = np.where(processed_song > self.threshold, 1, 0)
             wav_length_ms = (len(data) / sr) * 1000
             timebin_duration_ms = wav_length_ms / len(song_status)
-
+            
             onsets_offsets = []
             start_index = None
             for index, status in enumerate(song_status):
@@ -184,17 +205,23 @@ class Inference:
                 end_ms = end_index * timebin_duration_ms
                 onsets_offsets.append((start_index, end_index, start_ms, end_ms))
 
-            # Update CSV with results for this song
+            print(f"Number of detected segments: {len(onsets_offsets)}")
+            print(f"Onset/offset detection time: {time.time() - detection_start_time:.2f} seconds")
+            
+            # Update CSV
+            csv_start_time = time.time()
+            print(f"Updating CSV for {filename}")
             self.update_csv(onsets_offsets=onsets_offsets, song_name=filename)
+            print(f"CSV update time: {time.time() - csv_start_time:.2f} seconds")
+            
+            print(f"Finished processing {filename}")
+            print(f"Total processing time for this file: {time.time() - file_start_time:.2f} seconds")
+            print("--------------------")
 
-            # post_processing.plot_spectrogram_with_processed_song(
-            #     file_name=filename,
-            #     spectrogram=spectrogram_data,
-            #     smoothed_song=smoothed_song,
-            #     processed_song=processed_song,
-            #     directory=os.path.join(self.output_path, 'specs')
-            # )
-
+        total_time = time.time() - total_start_time
+        print(f"Completed sort_aws_files")
+        print(f"Total processing time for all files: {total_time:.2f} seconds")
+        print(f"Average time per file: {total_time / len(audio):.2f} seconds")
 
     def update_csv(self, onsets_offsets, song_name):
         with open(self.csv_path, 'a', newline='') as csvfile:
@@ -209,20 +236,29 @@ class Inference:
                 })
 
 def process_filename(file_path):
-    filename  = os.path.basename(file_path)
+    print(f"Processing filename: {file_path}")
+    filename = os.path.basename(file_path)
     filename_without_ext = os.path.splitext(filename)[0]
     parts = filename_without_ext.split("-")
     processed_parts = parts[1:]
+    print(f"Processed filename parts: {processed_parts}")
     return processed_parts
 
 def open_and_process_aws_file(filename, model_path, output_path):
+    print(f"Starting to process AWS file: {filename}")
     names = process_filename(filename)
+    print(f"Loading audio file: {filename}")
     audio, sr = librosa.load(filename, sr=None, mono=False)
+    print(f"Audio loaded. Shape: {audio.shape}, Sample rate: {sr}")
 
     audio_data = audio[0:len(names)]
+    print(f"Extracted audio data. Shape: {audio_data.shape}")
 
+    print(f"Initializing Inference with model_path: {model_path}, output_path: {output_path}")
     sorter = Inference(model_path=model_path, output_path=output_path, device="cpu")
+    print("Calling sort_aws_files method")
     sorter.sort_aws_files(audio=audio_data, filenames=names, sr=sr)
+
 def main():
     parser = argparse.ArgumentParser(description="Bird song inference")
     parser.add_argument("--mode", choices=["aws", "local_file", "local_dir"], default="local_dir", help="Mode of operation")
@@ -233,13 +269,19 @@ def main():
     args = parser.parse_args()
 
     if args.mode == "aws":
+        print("Running in AWS mode")
         # S3 trigger mode
         bucket_name = os.environ.get('bucket_name')
         prefix = os.environ.get('prefix')
         filename = os.environ.get('filename')
+        print(f"AWS environment variables: bucket_name={bucket_name}, prefix={prefix}, filename={filename}")
+        
         model_path = args.model
-        output_path = os.path.join(args.output, 'activity_detection')
+        output_path = os.path.join(args.output, 'activity_detection_tweety')
+        print(f"Model path: {model_path}")
+        print(f"Output path: {output_path}")
 
+        print("Calling open_and_process_aws_file")
         open_and_process_aws_file(filename, args.model, output_path)
 
     elif args.mode == "local_file":
