@@ -18,4 +18,4 @@ fi
 python src/inference.py --mode aws --input $filename --output $prefix 
 
 # # Upload the results back to S3
-aws s3 cp "./${prefix}/activity_detection" "s3://${bucket_name}/${prefix}/activity_detection_tweety/" --recursive
+aws s3 cp "./${prefix}/activity_detection_tweety" "s3://${bucket_name}/${prefix}/activity_detection/" --recursive
