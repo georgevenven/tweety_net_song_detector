@@ -10,7 +10,8 @@ from spectogram_generator import WavtoSpec
 from utils import load_model
 import post_processing
 import argparse
-import boto3
+import librosa
+from scipy.signal import windows, spectrogram, ellip, filtfilt
 
 def get_default_model_path():
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,7 +22,7 @@ def get_default_output_path():
     return os.path.join(script_dir, "..", "output")
 
 class Inference:
-    def __init__(self, input_path=None, output_path=None, plot_spec_results=False, model_path=None, threshold=.5, min_length=500, pad_song=50):
+    def __init__(self, input_path=None, output_path=None, plot_spec_results=False, model_path=None, threshold=.5, min_length=500, pad_song=50, device=None):
         self.input_path = input_path
         self.output_path = output_path if output_path else get_default_output_path()
         self.plot_spec_results = plot_spec_results
@@ -32,7 +33,11 @@ class Inference:
         if model_path is None:
             model_path = get_default_model_path()
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if device is None:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = device
+
         weight_path = os.path.join(model_path, "weights.pth")
         config_path = os.path.join(model_path, "config.json")
         
@@ -47,7 +52,7 @@ class Inference:
         if plot_spec_results:
             os.makedirs(os.path.join(self.output_path, 'specs'), exist_ok=True)
         
-        self.csv_path = os.path.join(self.output_path, 'results.csv')
+        self.csv_path = os.path.join(self.output_path, 'onset_offset_results.csv')
         self.create_csv_header()
 
     def create_csv_header(self):
@@ -121,6 +126,76 @@ class Inference:
                 directory=os.path.join(self.output_path, 'specs')
             )
 
+    def sort_aws_files(self, audio, filenames, sr):
+        for data, filename in zip(audio, filenames):
+            # Calculate the length of the audio file in milliseconds
+            length_in_ms = (data.shape[0] / sr) * 1000
+            # High-pass filter (adjust the filtering frequency as necessary)
+            b, a = ellip(5, 0.2, 40, 500/(sr/2), 'high')
+            data = filtfilt(b, a, data)
+
+            # Canary song analysis parameters
+            NFFT = 1024  # Number of points in FFT
+            step_size = 119  # Step size for overlap
+
+            # Calculate the overlap in samples
+            overlap_samples = NFFT - step_size
+
+            # Use a Gaussian window
+            window = windows.gaussian(NFFT, std=NFFT/8)
+
+            # Compute the spectrogram with the Gaussian window
+            frequencies, times, spectrogram_data = spectrogram(data, fs=sr, window=window, nperseg=NFFT, noverlap=overlap_samples)
+
+            # Compute the spectrogram with the Gaussian window
+            f, t, Sxx = spectrogram(data, fs=sr, window=window, nperseg=NFFT, noverlap=overlap_samples)
+
+            # Convert to dB
+            Sxx_log = 10 * np.log10(Sxx)
+
+            # Post-processing: Clipping and Normalization
+            clipping_level = -2  # dB
+            Sxx_log_clipped = np.clip(Sxx_log, a_min=clipping_level, a_max=None)
+            spectrogram_data = (Sxx_log_clipped - np.min(Sxx_log_clipped)) / (np.max(Sxx_log_clipped) - np.min(Sxx_log_clipped))
+
+            predictions = post_processing.process_spectrogram(model=self.model, spec=spectrogram_data, device=self.device, max_length=2048)
+            smoothed_song = post_processing.moving_average(predictions, window_size=100)
+            processed_song = post_processing.post_process_segments(smoothed_song, min_length=self.min_length, pad_song=self.pad_song, threshold=self.threshold)
+
+            song_status = np.where(processed_song > self.threshold, 1, 0)
+            wav_length_ms = (len(data) / sr) * 1000
+            timebin_duration_ms = wav_length_ms / len(song_status)
+
+            onsets_offsets = []
+            start_index = None
+            for index, status in enumerate(song_status):
+                if status == 1 and start_index is None:
+                    start_index = index
+                elif status == 0 and start_index is not None:
+                    end_index = index - 1
+                    start_ms = start_index * timebin_duration_ms
+                    end_ms = end_index * timebin_duration_ms
+                    onsets_offsets.append((start_index, end_index, start_ms, end_ms))
+                    start_index = None
+
+            if start_index is not None:
+                end_index = len(song_status) - 1
+                start_ms = start_index * timebin_duration_ms
+                end_ms = end_index * timebin_duration_ms
+                onsets_offsets.append((start_index, end_index, start_ms, end_ms))
+
+            # Update CSV with results for this song
+            self.update_csv(onsets_offsets=onsets_offsets, song_name=filename)
+
+            # post_processing.plot_spectrogram_with_processed_song(
+            #     file_name=filename,
+            #     spectrogram=spectrogram_data,
+            #     smoothed_song=smoothed_song,
+            #     processed_song=processed_song,
+            #     directory=os.path.join(self.output_path, 'specs')
+            # )
+
+
     def update_csv(self, onsets_offsets, song_name):
         with open(self.csv_path, 'a', newline='') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=['filename', 'onset_timebin', 'offset_timebin', 'onset_ms', 'offset_ms'])
@@ -133,6 +208,21 @@ class Inference:
                     'offset_ms': offset_ms
                 })
 
+def process_filename(file_path):
+    filename  = os.path.basename(file_path)
+    filename_without_ext = os.path.splitext(filename)[0]
+    parts = filename_without_ext.split("-")
+    processed_parts = parts[1:]
+    return processed_parts
+
+def open_and_process_aws_file(filename, model_path, output_path):
+    names = process_filename(filename)
+    audio, sr = librosa.load(filename, sr=None, mono=False)
+
+    audio_data = audio[0:len(names)]
+
+    sorter = Inference(model_path=model_path, output_path=output_path, device="cpu")
+    sorter.sort_aws_files(audio=audio_data, filenames=names, sr=sr)
 def main():
     parser = argparse.ArgumentParser(description="Bird song inference")
     parser.add_argument("--mode", choices=["aws", "local_file", "local_dir"], default="local_dir", help="Mode of operation")
@@ -148,32 +238,10 @@ def main():
         prefix = os.environ.get('prefix')
         filename = os.environ.get('filename')
         model_path = args.model
-        output_path = args.output
+        output_path = os.path.join(args.output, 'activity_detection')
 
-        if bucket_name and prefix and filename:
-            s3 = boto3.client('s3')
-            local_file_path = f"/tmp/{filename}"
-            s3.download_file(bucket_name, filename, local_file_path)
+        open_and_process_aws_file(filename, args.model, output_path)
 
-            sorter = Inference(model_path=model_path, output_path=output_path, plot_spec_results=args.plot_spec)
-            sorter.sort_single_song(local_file_path)
-
-            # Upload results back to S3
-            s3.upload_file(
-                os.path.join(output_path, 'results.csv'),
-                bucket_name,
-                f"{prefix}/activity_detection/results.csv"
-            )
-            if args.plot_spec:
-                spec_file = os.path.join(output_path, 'specs', f"{Path(filename).stem}_spectrogram.png")
-                if os.path.exists(spec_file):
-                    s3.upload_file(
-                        spec_file,
-                        bucket_name,
-                        f"{prefix}/activity_detection/specs/{os.path.basename(spec_file)}"
-                    )
-        else:
-            print("Error: Missing required environment variables for AWS mode")
     elif args.mode == "local_file":
         sorter = Inference(model_path=args.model, output_path=args.output, plot_spec_results=args.plot_spec)
         if args.input:

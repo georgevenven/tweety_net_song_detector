@@ -15,7 +15,7 @@ if [ ! -d "$prefix" ]; then
 fi
 
 # Run the Python inference script with the environment variables
-python src/inference.py "$bucket_name" "$prefix" "$filename"
+python src/inference.py --mode aws --input $filename --output $prefix 
 
-# Upload the results back to S3
-aws s3 cp "./${prefix}/activity_detection" "s3://${bucket_name}/${prefix}/activity_detection/" --recursive
+# # Upload the results back to S3
+aws s3 cp "./${prefix}/activity_detection" "s3://${bucket_name}/${prefix}/activity_detection_tweety/" --recursive

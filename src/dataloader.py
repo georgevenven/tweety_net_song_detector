@@ -4,14 +4,34 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 import torch.nn.functional as F
+from collections import Counter
 
 class SongDetectorDataClass(Dataset):
-    def __init__(self, file_dir):
+    def __init__(self, file_dir, augment=True):
         self.file_paths = []
+        self.augment = augment
 
         for file in os.listdir(file_dir):
-            self.file_paths.append(os.path.join(file_dir, file))
+            file_path = os.path.join(file_dir, file)
+            data = np.load(file_path, allow_pickle=True)
+            if 'song' in data.files:
+                self.file_paths.append(file_path)
+        self.class_weights = self.calculate_class_weights()
 
+    def calculate_class_weights(self):
+        all_labels = []
+        for file_path in self.file_paths:
+            data = np.load(file_path, allow_pickle=True)
+            labels = data['song']
+            all_labels.extend(labels.flatten())
+        
+        label_counts = Counter(all_labels)
+        total_samples = sum(label_counts.values())
+        
+        class_weights = {class_id: total_samples / (len(label_counts) * count) 
+                         for class_id, count in label_counts.items()}
+        
+        return torch.tensor([class_weights[i] for i in range(len(class_weights))])
     def __getitem__(self, index):        
         file_path = self.file_paths[index]
 
@@ -24,9 +44,21 @@ class SongDetectorDataClass(Dataset):
         mean_val, std_val = spectogram.mean(), spectogram.std()
         spectogram = (spectogram - mean_val) / (std_val + 1e-7)
         spectogram[np.isnan(spectogram)] = 0
-        # spectogram = spectogram[20:216, :]
+
+        if self.augment:
+            # Add white noise
+            noise = np.random.normal(0, 1, spectogram.shape)
+            spectogram += noise
+
+            # # Pitch shift
+            # shift = 150
+            # if shift > 0:
+            #     spectogram = np.pad(spectogram, ((shift, 0), (0, 0)), mode='constant')[:-shift, :]
+            # elif shift < 0:
+            #     spectogram = np.pad(spectogram, ((0, -shift), (0, 0)), mode='constant')[-shift:, :]
 
         ground_truth_labels = torch.tensor(ground_truth_labels, dtype=torch.int64).squeeze(0)
+        ground_truth_labels[ground_truth_labels == 2] = 0  # Set labels that are not 0 or 1 to 0
         spectogram = torch.from_numpy(spectogram).float().permute(1, 0)
 
         return spectogram.T, ground_truth_labels

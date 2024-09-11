@@ -1,23 +1,24 @@
 import torch 
 import numpy as np
 import matplotlib.pyplot as plt
-
+import torch.nn.functional as F
 class Trainer():
-    def __init__(self, model, train_loader, test_loader, device, lr=1e-2, plotting=False, batches_per_eval=100, desired_total_batches=1e4, patience=8, use_tqdm=True, moving_avg_window = 200):
+    def __init__(self, model, train_loader, test_loader, device, lr=1e-2, plotting=False, batches_per_eval=100, desired_total_batches=1e4, patience=8, use_tqdm=True, moving_avg_window=200):
         self.device = device
         self.model = model.to(self.device)
         self.train_loader = train_loader
         self.test_loader = test_loader
-        self.optimizer = torch.optim.Adam(params=self.model.parameters(), lr=1e-2, weight_decay=0.0)
+        self.optimizer = torch.optim.Adam(params=self.model.parameters(), lr=lr, weight_decay=0.0)
         self.plotting = plotting
         self.batches_per_eval = batches_per_eval
         self.desired_total_batches = desired_total_batches
         self.patience = patience
         self.use_tqdm = use_tqdm
         self.moving_avg_window = moving_avg_window  # Window size for moving average
+        self.class_weights = train_loader.dataset.class_weights.to(device)
 
     def frame_error_rate(self, y_pred, y_true):
-        # Threshold y_pred at 0.5 to obtain binary predictions
+       # Threshold y_pred at 0.5 to obtain binary predictions
         y_pred_binary = (y_pred > 0.5).float()
         # Calculate mismatches between binary predictions and true labels
         mismatches = (y_pred_binary != y_true).float()
@@ -40,8 +41,7 @@ class Trainer():
 
                 output = self.model.forward(spectrogram)
                 output = output.squeeze(1)
-                output = torch.sigmoid(output)
-                loss = self.model.loss_function(y_pred=output, y_true=label)
+                loss = self.model.loss_function(y_pred=output, y_true=label, class_weights=self.class_weights)
 
                 total_val_loss += loss.item()
                 total_frame_error += self.frame_error_rate(output, label).item()
@@ -75,9 +75,8 @@ class Trainer():
 
                 output = self.model.forward(spectrogram)
                 output = output.squeeze(1)
-                output = torch.sigmoid(output)
 
-                loss = self.model.loss_function(y_pred=output, y_true=label)
+                loss = self.model.loss_function(y_pred=output, y_true=label, class_weights=self.class_weights)
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()

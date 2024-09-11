@@ -1,9 +1,9 @@
 torch>=1.7.0           # PyTorch for machine learning
 torchvision>=0.8.0     # Only needed if you're using image transformations
-numpy>=1.19.2          # Numerical computations
+numpy==1.19.2          # Numerical computations
 matplotlib>=3.3.2      # Plotting and visualizations
 tqdm>=4.50.2           # Progress bars
 pandas>=1.1.3          # DataFrame handling
 scipy>=1.5.2           # Signal processing (wavfile, spectrogram, ellip, filtfilt)
-pillow>=10.4.0         # Required for image manipulation if using torchvision
-boto3
+pillow         # Required for image manipulation if using torchvision
+librosa

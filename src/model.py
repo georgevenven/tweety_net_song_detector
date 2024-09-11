@@ -192,11 +192,11 @@ class TweetyNet(nn.Module):
         # permute back to (batch, time bins, hidden size) to project features down onto number of classes
         rnn_output = rnn_output.permute(1, 0, 2)
         logits = self.fc(rnn_output)
-        # permute yet again so that dimension order is (batch, classes, time steps)
-        # because this is order that loss function expects
+
+        logits = F.sigmoid(logits)
         return logits.permute(0, 2, 1)
 
-    def loss_function(self, y_pred, y_true):
+    def loss_function(self, y_pred, y_true, class_weights=None):
         """loss function for TweetyNet
         Parameters
         ----------
@@ -204,10 +204,21 @@ class TweetyNet(nn.Module):
             output of TweetyNet model, shape (batch, classes, timebins)
         y_true : torch.Tensor
             one-hot encoded labels, shape (batch, classes, timebins)
+        class_weights : torch.Tensor, optional
+            weights for each class to handle class imbalance, shape (2,)
         Returns
         -------
         loss : torch.Tensor
-            mean cross entropy loss
+            mean binary cross entropy loss
         """
-        loss = nn.BCELoss()
+
+        class_weights = None 
+
+        if class_weights is not None:
+            class_weights = class_weights.to(y_pred.device)
+            # Apply class weights
+            weights = y_true * class_weights[1] + (1 - y_true) * class_weights[0]
+            loss = nn.BCELoss(weight=weights)
+        else:
+            loss = nn.BCELoss()
         return loss(y_pred, y_true)
