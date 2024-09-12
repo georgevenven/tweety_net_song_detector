@@ -23,7 +23,7 @@ def get_default_output_path():
     return os.path.join(script_dir, "..", "output")
 
 class Inference:
-    def __init__(self, input_path=None, output_path=None, plot_spec_results=False, model_path=None, threshold=.5, min_length=500, pad_song=50, device=None):
+    def __init__(self, input_path=None, output_path=None, plot_spec_results=False, model_path=None, threshold=.5, min_length=500, pad_song=50, device=None, aws_mode=False):
         self.input_path = input_path
         self.output_path = output_path if output_path else get_default_output_path()
         self.plot_spec_results = plot_spec_results
@@ -31,13 +31,15 @@ class Inference:
         self.min_length = min_length
         self.pad_song = pad_song
 
+        if aws_mode:
+            # Always use CPU for AWS Lambda
+            self.device = torch.device("cpu")
+        else:
+            # Use GPU if available, otherwise use CPU
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         if model_path is None:
             model_path = get_default_model_path()
-
-        if device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = device
 
         weight_path = os.path.join(model_path, "weights.pth")
         config_path = os.path.join(model_path, "config.json")
@@ -255,7 +257,7 @@ def open_and_process_aws_file(filename, model_path, output_path):
     print(f"Extracted audio data. Shape: {audio_data.shape}")
 
     print(f"Initializing Inference with model_path: {model_path}, output_path: {output_path}")
-    sorter = Inference(model_path=model_path, output_path=output_path, device="cpu")
+    sorter = Inference(model_path=model_path, output_path=output_path, device="cpu", aws_mode=True)
     print("Calling sort_aws_files method")
     sorter.sort_aws_files(audio=audio_data, filenames=names, sr=sr)
 
@@ -268,7 +270,9 @@ def main():
     parser.add_argument("--plot_spec", action="store_true", help="Generate spectrograms")
     args = parser.parse_args()
 
-    if args.mode == "aws":
+    aws_mode = args.mode == "aws"
+
+    if aws_mode:
         print("Running in AWS mode")
         # S3 trigger mode
         bucket_name = os.environ.get('bucket_name')
@@ -278,6 +282,9 @@ def main():
         
         model_path = args.model
         output_path = os.path.join(args.output, 'activity_detection_tweety')
+        os.makedirs(output_path, exist_ok=True)
+        print(f"Created output directory: {output_path}")
+
         print(f"Model path: {model_path}")
         print(f"Output path: {output_path}")
 
@@ -285,13 +292,13 @@ def main():
         open_and_process_aws_file(filename, args.model, output_path)
 
     elif args.mode == "local_file":
-        sorter = Inference(model_path=args.model, output_path=args.output, plot_spec_results=args.plot_spec)
+        sorter = Inference(model_path=args.model, output_path=args.output, plot_spec_results=args.plot_spec, aws_mode=False)
         if args.input:
             sorter.sort_single_song(args.input)
         else:
             print("Warning: No input file specified. Please provide an input file using --input.")
     elif args.mode == "local_dir":
-        sorter = Inference(input_path=args.input, output_path=args.output, model_path=args.model, plot_spec_results=args.plot_spec)
+        sorter = Inference(input_path=args.input, output_path=args.output, model_path=args.model, plot_spec_results=args.plot_spec, aws_mode=False)
         if args.input:
             sorter.sort_all_songs()
         else:

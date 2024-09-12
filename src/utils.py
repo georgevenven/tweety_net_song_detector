@@ -15,7 +15,9 @@ def load_weights(dir, model):
     FileNotFoundError: If the weights file is not found.
     """
     try:
-        model.load_state_dict(torch.load(dir))
+        # Load the state dict with a CPU map location
+        state_dict = torch.load(dir, map_location=torch.device('cpu'))
+        model.load_state_dict(state_dict)
     except FileNotFoundError:
         raise FileNotFoundError(f"Weight file not found at {dir}")
 
