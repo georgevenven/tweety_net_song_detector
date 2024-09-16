@@ -330,6 +330,8 @@ def main():
     args = parser.parse_args()
 
     aws_mode = args.mode == "aws"
+    local_file_mode = args.mode == "local_file"
+    local_dir_mode = args.mode == "local_dir"
 
     if aws_mode:
         print("Running in AWS mode")
@@ -349,16 +351,16 @@ def main():
         print("Calling open_and_process_aws_file")
         open_and_process_aws_file(filename, args.model, output_path)
 
-    elif args.mode == "local_file":
-        sorter = Inference(model_path=args.model, output_path=args.output, plot_spec_results=args.plot_spec, aws_mode=False, create_json=not args.return_json, separate_json=args.separate_json, step_size=args.step_size, nfft=args.nfft)
+    elif local_file_mode:
+        sorter = Inference(model_path=args.model, output_path=args.output, plot_spec_results=args.plot_spec, aws_mode=False, create_json=not args.return_json, separate_json=args.separate_json, step_size=args.step_size, nfft=args.nfft, device="cuda")
         if args.input:
             result = sorter.sort_single_song(args.input, return_json=args.return_json)
             if args.return_json:
                 print(result)
         else:
             print("Warning: No input file specified. Please provide an input file using --input.")
-    elif args.mode == "local_dir":
-        sorter = Inference(input_path=args.input, output_path=args.output, model_path=args.model, plot_spec_results=args.plot_spec, aws_mode=False, separate_json=args.separate_json, step_size=args.step_size, nfft=args.nfft)
+    elif local_dir_mode:
+        sorter = Inference(input_path=args.input, output_path=args.output, model_path=args.model, plot_spec_results=args.plot_spec, aws_mode=False, separate_json=args.separate_json, step_size=args.step_size, nfft=args.nfft, device="cuda" if torch.cuda.is_available() else "cpu")
         if args.input:
             sorter.sort_all_songs()
         else:

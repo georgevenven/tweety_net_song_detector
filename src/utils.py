@@ -3,7 +3,7 @@ import json
 import os 
 from model import TweetyNet
 
-def load_weights(dir, model):
+def load_weights(dir, model, map_location=torch.device('cuda')):
     """
     Load the saved weights into the model.
 
@@ -16,12 +16,12 @@ def load_weights(dir, model):
     """
     try:
         # Load the state dict with a CPU map location
-        state_dict = torch.load(dir, map_location=torch.device('cpu'))
+        state_dict = torch.load(dir, map_location=map_location)
         model.load_state_dict(state_dict)
     except FileNotFoundError:
         raise FileNotFoundError(f"Weight file not found at {dir}")
 
-def detailed_count_parameters(model, print_layer_params=False):
+def detailed_count_parameters(model, print_layer_params=False, map_location=torch.device('cuda')):
     """
     Print details of layers with the number of trainable parameters in the model.
 
@@ -41,7 +41,7 @@ def detailed_count_parameters(model, print_layer_params=False):
 
 def load_config(config_path):
     """
-    Load the configuration file.
+    Load the configuration file.Load the configuration file.
 
     Args:
     config_path (str): The path to the configuration JSON file.
@@ -95,3 +95,4 @@ def save_model_config_and_weights(trainer, config, model_name):
     
     print(f'Model config saved to {config_path}')
     print(f'Model weights saved to {weights_path}')
+
