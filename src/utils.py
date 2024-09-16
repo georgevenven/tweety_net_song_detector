@@ -3,23 +3,24 @@ import json
 import os 
 from model import TweetyNet
 
-def load_weights(dir, model, map_location=torch.device('cuda')):
+def load_weights(dir, model, map_location):
     """
     Load the saved weights into the model.
 
     Args:
-    dir (str): The directory where the model weights are saved.
-    model (torch.nn.Module): The model into which weights are to be loaded.
+        dir (str): The directory where the model weights are saved.
+        model (torch.nn.Module): The model into which weights are to be loaded.
+        map_location (torch.device): The device to map the weights to.
 
     Raises:
-    FileNotFoundError: If the weights file is not found.
+        FileNotFoundError: If the weights file is not found.
     """
     try:
-        # Load the state dict with a CPU map location
         state_dict = torch.load(dir, map_location=map_location)
         model.load_state_dict(state_dict)
     except FileNotFoundError:
         raise FileNotFoundError(f"Weight file not found at {dir}")
+
 
 def detailed_count_parameters(model, print_layer_params=False, map_location=torch.device('cuda')):
     """
@@ -56,25 +57,49 @@ def load_config(config_path):
     except FileNotFoundError:
         raise FileNotFoundError(f"Configuration file not found at {config_path}")
 
-def load_model(config_path, weight_path=None):
+def load_weights(dir, model, map_location):
+    """
+    Load the saved weights into the model.
+
+    Args:
+        dir (str): The directory where the model weights are saved.
+        model (torch.nn.Module): The model into which weights are to be loaded.
+        map_location (torch.device): The device to map the weights to.
+
+    Raises:
+        FileNotFoundError: If the weights file is not found.
+    """
+    try:
+        state_dict = torch.load(dir, map_location=map_location)
+        model.load_state_dict(state_dict)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Weight file not found at {dir}")
+
+def load_model(config_path, weight_path=None, map_location=torch.device('cpu')):
     """
     Initialize and load the model with the given configuration and weights.
 
     Args:
-    config_path (str): The path to the model configuration file.
-    weight_path (str, optional): The path to the model weights. If not provided, initializes with random weights.
+        config_path (str): The path to the model configuration file.
+        weight_path (str, optional): The path to the model weights. If not provided, initializes with random weights.
+        map_location (torch.device): The device to map the weights to.
 
     Returns:
-    torch.nn.Module: The initialized model.
+        torch.nn.Module: The initialized model.
     """
     config = load_config(config_path)
 
-    model = TweetyNet(input_shape=(1, 512, config['context_size']), hidden_size=config['hidden_size'], rnn_dropout=0.2, num_classes=1)
+    model = TweetyNet(
+        input_shape=(1, 512, config['context_size']),
+        hidden_size=config['hidden_size'],
+        rnn_dropout=0.2,
+        num_classes=1
+    )
 
     if weight_path:
-        load_weights(dir=weight_path, model=model)
+        load_weights(dir=weight_path, model=model, map_location=map_location)
     else:
-        print("Model loaded with randomly initiated weights.")
+        print("Model loaded with randomly initialized weights.")
 
     return model
 

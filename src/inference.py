@@ -31,7 +31,6 @@ def get_default_output_path() -> str:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(script_dir, "..", "output")
 
-
 class Inference:
     def __init__(
         self,
@@ -76,7 +75,8 @@ class Inference:
 
         self.context_size = config.get("context_size", 2048)  # Default to 2048 if not found
 
-        self.model = load_model(weight_path=weight_path, config_path=config_path).to(self.device)
+        # Pass the device as map_location
+        self.model = load_model(weight_path=weight_path, config_path=config_path, map_location=self.device).to(self.device)
         self.model.eval()  # Set model to evaluation mode
 
         os.makedirs(self.output_path, exist_ok=True)
