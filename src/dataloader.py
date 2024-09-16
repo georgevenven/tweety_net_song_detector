@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from collections import Counter
 
 class SongDetectorDataClass(Dataset):
-    def __init__(self, file_dir, augment=True):
+    def __init__(self, file_dir, augment=False):
         self.file_paths = []
         self.augment = augment
 
@@ -16,22 +16,22 @@ class SongDetectorDataClass(Dataset):
             data = np.load(file_path, allow_pickle=True)
             if 'song' in data.files:
                 self.file_paths.append(file_path)
-        self.class_weights = self.calculate_class_weights()
+        self.class_weights = None #self.calculate_class_weights()
 
-    def calculate_class_weights(self):
-        all_labels = []
-        for file_path in self.file_paths:
-            data = np.load(file_path, allow_pickle=True)
-            labels = data['song']
-            all_labels.extend(labels.flatten())
+    # def calculate_class_weights(self):
+    #     all_labels = []
+    #     for file_path in self.file_paths:
+    #         data = np.load(file_path, allow_pickle=True)
+    #         labels = data['song']
+    #         all_labels.extend(labels.flatten())
         
-        label_counts = Counter(all_labels)
-        total_samples = sum(label_counts.values())
+    #     label_counts = Counter(all_labels)
+    #     total_samples = sum(label_counts.values())
         
-        class_weights = {class_id: total_samples / (len(label_counts) * count) 
-                         for class_id, count in label_counts.items()}
+    #     class_weights = {class_id: total_samples / (len(label_counts) * count) 
+    #                      for class_id, count in label_counts.items()}
         
-        return torch.tensor([class_weights[i] for i in range(len(class_weights))])
+    #     return torch.tensor([class_weights[i] for i in range(len(class_weights))])
     def __getitem__(self, index):        
         file_path = self.file_paths[index]
 

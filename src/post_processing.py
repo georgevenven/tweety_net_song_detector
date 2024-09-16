@@ -4,9 +4,6 @@ import os
 import torch
 from tqdm import tqdm  # Import tqdm for progress tracking
 
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
-
 def moving_average(signal, window_size):
     """Compute the moving average of the given signal with the specified window size."""
     cumsum_vec = np.cumsum(np.insert(signal, 0, 0)) 
@@ -57,7 +54,6 @@ def process_spectrogram(model, spec, device, max_length=2048):
         
         logits = model(chunk_tensor)
         logits = logits.squeeze().detach().cpu()
-        logits = sigmoid(logits)
 
         combined_predictions.append(logits)
 
@@ -127,7 +123,7 @@ def plot_spectrogram_with_processed_song(directory, file_name, spectrogram, smoo
 
     # Plot smoothed classification line
     smoothed_times = np.arange(len(smoothed_song)) + 50  # Offset for alignment
-    ax.plot(smoothed_times, smoothed_song * (spectrogram.shape[0] - 1), color='magenta', label='Smoothed Classification Sigmoid', alpha=0.7)
+    ax.plot(smoothed_times, smoothed_song * (spectrogram.shape[0] - 1), color='magenta', label='Smoothed Classification', alpha=0.7)
 
     # Add color bar below spectrogram based on processed song
     for i in range(len(processed_song)):

@@ -1,171 +1,160 @@
 import os
 import numpy as np
-from scipy.io import wavfile
-from scipy.signal import spectrogram
+from scipy.signal import spectrogram, windows, ellip, filtfilt
 import matplotlib.pyplot as plt
-import random
+import multiprocessing
+import soundfile as sf
+import gc
+import csv
+import sys
+import psutil
 from tqdm import tqdm
-import numpy as np
-from scipy.io import wavfile
-from scipy.signal import windows, spectrogram, ellip, filtfilt
-import shutil
-from pathlib import Path
+import json
 
 class WavtoSpec:
-    def __init__(self, src_dir=None, dst_dir=None):
+    def __init__(self, src_dir, dst_dir, csv_file_dir=None, step_size=119, nfft=1024):
         self.src_dir = src_dir
         self.dst_dir = dst_dir
+        self.csv_file_dir = csv_file_dir
+        self.use_csv = csv_file_dir is not None
+        self.step_size = step_size
+        self.nfft = nfft
 
     def process_directory(self):
-        # First walk to count all the .wav files
-        total_files = sum(
-            len([f for f in files if f.lower().endswith('.wav')])
-            for r, d, files in os.walk(self.src_dir)
-        )
-        
-        # Now process each file with a single tqdm bar
-        with tqdm(total=total_files, desc="Overall progress") as pbar:
-            for root, dirs, files in os.walk(self.src_dir):
-                dirs[:] = [d for d in dirs if d not in ['.DS_Store']]  # Ignore irrelevant directories
-                files = [f for f in files if f.lower().endswith('.wav')]
-                for file in files:
-                    full_path = os.path.join(root, file)
-                    self.convert_to_spectrogram(full_path)
-                    pbar.update(1)  # Update the progress bar for each file
-    
-    def convert_to_spectrogram(self, file_path, min_length_ms=1000, save_file=True):
+        audio_files = [os.path.join(root, file)
+                       for root, dirs, files in os.walk(self.src_dir)
+                       for file in files if file.lower().endswith('.wav')]
+
+        skipped_files_count = 0
+
+        for file_path in tqdm(audio_files, desc="Processing files"):
+            result = self.convert_to_spectrogram(file_path, csv_file_dir=self.csv_file_dir, save_npz=True)
+            if result is None:
+                skipped_files_count += 1
+
+        print(f"Total files processed: {len(audio_files)}")
+        print(f"Total files skipped due to no vocalization data: {skipped_files_count}")
+
+    @staticmethod
+    def process_file(instance, file_path):
+        return instance.convert_to_spectrogram(file_path, csv_file_dir=None, save_npz=False)
+
+    def convert_to_spectrogram(self, file_path, csv_file_dir, min_length_ms=500, min_timebins=200, save_npz=True):
         try:
-            # Read the WAV file
-            samplerate, data = wavfile.read(file_path)
-
-            # Calculate the length of the audio file in milliseconds
-            length_in_ms = (data.shape[0] / samplerate) * 1000
-
+            with sf.SoundFile(file_path, 'r') as wav_file:
+                samplerate = wav_file.samplerate
+                data = wav_file.read(dtype='int16')
+                if wav_file.channels > 1:
+                    data = data[:, 0]
+            
+            # Skip small files (less than 1 second)
+            length_in_ms = (len(data) / samplerate) * 1000
             if length_in_ms < min_length_ms:
                 print(f"File {file_path} is below the length threshold and will be skipped.")
-                return  # Skip processing this file
-
-            # High-pass filter (adjust the filtering frequency as necessary)
+                return None
+            
+            file_name = os.path.basename(file_path)
+            
+            # Check if there is vocalization in the file and get phrase labels
+            if self.use_csv or csv_file_dir is not None:
+                vocalization_data, phrase_labels = self.check_vocalization(file_name=file_name, data=data, samplerate=samplerate, csv_file_dir=csv_file_dir)
+                if not vocalization_data:
+                    print("file skipped due to no vocalization")
+                    return None
+            else:
+                vocalization_data = [(0, len(data)/samplerate)]  # Assume entire file is vocalization
+                phrase_labels = {}  # Empty dict if not using CSV
+            
             b, a = ellip(5, 0.2, 40, 500/(samplerate/2), 'high')
             data = filtfilt(b, a, data)
-
-            # Canary song analysis parameters
-            NFFT = 1024  # Number of points in FFT
-            step_size = 119  # Step size for overlap
-
-            # Calculate the overlap in samples
-            overlap_samples = NFFT - step_size
-
-            # Use a Gaussian window
-            window = windows.gaussian(NFFT, std=NFFT/8)
-
-            # Compute the spectrogram with the Gaussian window
-            f, t, Sxx = spectrogram(data, fs=samplerate, window=window, nperseg=NFFT, noverlap=overlap_samples)
-
-            # Convert to dB
-            Sxx_log = 10 * np.log10(Sxx)
-
-            # Post-processing: Clipping and Normalization
-            clipping_level = -2  # dB
-            Sxx_log_clipped = np.clip(Sxx_log, a_min=clipping_level, a_max=None)
-            Sxx_log_normalized = (Sxx_log_clipped - np.min(Sxx_log_clipped)) / (np.max(Sxx_log_clipped) - np.min(Sxx_log_clipped))
-
-            if save_file:
-                # Assuming label is an integer or float
-                labels = np.full((Sxx_log_normalized.shape[1],), 0)  # Adjust the label array as needed
-
-                # Define the path where the spectrogram will be saved
-                spec_filename = os.path.splitext(os.path.basename(file_path))[0]
-                spec_file_path = os.path.join(self.dst_dir, spec_filename + '.npz')
-                # Saving the spectrogram and the labels
-                np.save(spec_file_path, s=Sxx_log_normalized, labels=labels)
-                # Print out the path to the saved file
-                print(f"Spectrogram saved to {spec_file_path}")
+            
+            overlap_samples = self.nfft - self.step_size
+            window = windows.gaussian(self.nfft, std=self.nfft/8)
+            
+            f, t, Sxx = spectrogram(data, fs=samplerate, window=window, nperseg=self.nfft, noverlap=overlap_samples)
+            Sxx_log = 10 * np.log10(Sxx + 1e-6)
+            
+            # Convert phrase labels to timebins
+            labels = np.zeros(t.size, dtype=int)
+            for label, intervals in phrase_labels.items():
+                for start_sec, end_sec in intervals:
+                    start_bin = np.searchsorted(t, start_sec)
+                    end_bin = np.searchsorted(t, end_sec)
+                    labels[start_bin:end_bin] = int(label)
+            
+            if t.size >= min_timebins:
+                for i, (start_sec, end_sec) in enumerate(vocalization_data):
+                    start_bin = np.searchsorted(t, start_sec)
+                    end_bin = np.searchsorted(t, end_sec)
+                    
+                    segment_Sxx_log = Sxx_log[:, start_bin:end_bin]
+                    segment_labels = labels[start_bin:end_bin]
+                    segment_vocalization = np.ones(end_bin - start_bin, dtype=int)  # All 1s since this is a vocalization segment
+                    
+                    if save_npz:
+                        spec_filename = os.path.splitext(os.path.basename(file_path))[0]
+                        segment_spec_file_path = os.path.join(self.dst_dir, f"{spec_filename}_segment_{i}.npz")
+                        np.savez(segment_spec_file_path, 
+                                            s=segment_Sxx_log, 
+                                            vocalization=segment_vocalization, 
+                                            labels=segment_labels)
+                        print(f"Segment {i} spectrogram, vocalization data, and labels saved to {segment_spec_file_path}")
+                
+                return Sxx_log, vocalization_data, labels
+            
             else:
-                return Sxx_log_normalized
-
-
-        except ValueError as e:
-            print(f"Error reading {file_path}: {e}")
-
-
-    def visualize_random_spectrogram(self):
-        # Get a list of all '.npz' files in the destination directory
-        npz_files = list(Path(self.dst_dir).glob('*.npz'))
-        if not npz_files:
-            print("No spectrograms available to visualize.")
-            return
+                print(f"Spectrogram for {file_path} has less than {min_timebins} timebins and will not be saved.")
+                return None
         
-        # Choose a random spectrogram file
-        random_spec_path = random.choice(npz_files)
+        except Exception as e:
+            print(f"Error processing {file_path}: {e}")
+            return None
         
-        # Load the spectrogram data from the randomly chosen file
-        with np.load(random_spec_path) as data:
-            spectrogram_data = data['s']
-        
-        # Plot the spectrogram
-        plt.figure(figsize=(10, 4))
-        plt.imshow(spectrogram_data, aspect='auto', origin='lower')
-        plt.title(f"Random Spectrogram: {random_spec_path.stem}")
-        plt.ylabel('Frequency [Hz]')
-        plt.xlabel('Time [sec]')
-        plt.colorbar(format='%+2.0f dB')
-        plt.show()
+        finally:
+            plt.close('all')
+            gc.collect()
 
-    def process_file(self, file_path):
-        if not file_path.lower().endswith('.wav'):
-            print(f"File {file_path} is not a WAV file.")
-            return
+    def check_vocalization(self, file_name, data, samplerate, csv_file_dir):
+        if not self.use_csv:
+            return [(0, len(data)/samplerate)], {}  # Assume entire file is vocalization if not using CSV
 
-        if not os.path.exists(file_path):
-            print(f"File {file_path} does not exist.")
-            return
+        # Open csv file
+        csv_file_path = os.path.join(csv_file_dir)
+        if not os.path.exists(csv_file_path):
+            print(f"CSV file {csv_file_path} does not exist.")
+            return None, None
 
-        return self.convert_to_spectrogram(file_path, save_file=False)
+        with open(csv_file_path, 'r') as csv_file:
+            csv_reader = csv.DictReader(csv_file)
+            for row in csv_reader:
+                if row['file_name'] == file_name:
+                    onset_offset_list = eval(row['onset/offset'])
+                    onsets_offsets = [(onset, offset) for onset, offset in onset_offset_list]
+                    
+                    # Process phrase labels
+                    phrase_labels = {}
+                    if 'phrase_label onset/offsets' in row and row['phrase_label onset/offsets']:
+                        try:
+                            phrase_data = json.loads(row['phrase_label onset/offsets'].replace("'", '"'))
+                            for label, intervals in phrase_data.items():
+                                phrase_labels[label] = intervals
+                        except json.JSONDecodeError:
+                            print(f"Error decoding JSON for {file_name}. Raw data: {row['phrase_label onset/offsets']}")
+                    
+                    return onsets_offsets, phrase_labels
 
-# Helper function to find the next power of two
-def nextpow2(x):
-    return np.ceil(np.log2(np.abs(x))).astype('int')
+        print(f"No matching row found for {file_name} in {csv_file_path}.")
+        return None, None
 
-def copy_yarden_data(src_dirs, dst_dir):
-    """
-    Copies all .npz files from a list of source directories to a destination directory.
+# def main():
+#     # src_dir = '/media/george-vengrovski/disk2/wolf_stuff/files_with_audio_subsampled'
+#     # dst_dir = '/media/george-vengrovski/disk2/wolf_stuff/files_with_audio_specs'
+#     # csv_file_dir = None
+#     # step_size = 1024
+#     # nfft = 119
 
-    Parameters:
-    src_dirs (list): A list of source directories to search for .npz files.
-    dst_dir (str): The destination directory where .npz files will be copied.
-    """
-    # Ensure the destination directory exists
-    Path(dst_dir).mkdir(parents=True, exist_ok=True)
+#     # wav_to_spec = WavtoSpec(src_dir, dst_dir, csv_file_dir, step_size, nfft)
+#     # wav_to_spec.process_directory()
 
-    # Create a list to store all the .npz files found
-    npz_files = []
-
-    # Find all .npz files in source directories
-    for src_dir in src_dirs:
-        for root, dirs, files in os.walk(src_dir):
-            for file in files:
-                if file.endswith('.npz'):
-                    npz_files.append((os.path.join(root, file), file))
-
-    # Copy the .npz files to the destination directory with progress bar
-    for src_file_path, file in tqdm(npz_files, desc='Copying files'):
-        dst_file_path = os.path.join(dst_dir, file)
-        
-        # Ensure we don't overwrite files in the destination
-        if os.path.exists(dst_file_path):
-            print(f"File {file} already exists in destination. Skipping copy.")
-            continue
-
-        # Copy the .npz file to the destination directory
-        shutil.copy2(src_file_path, dst_file_path)
-        print(f"Copied {file} to {dst_dir}")
-
-
-# Usage:
-# wav_file_path = "/home/george-vengrovski/Documents/data/USA5336_test_sorter_GV/17"
-# npz_output_file_path = "/home/george-vengrovski/Documents/data/temp"
-# wav_to_spec = WavtoSpec(wav_file_path, npz_output_file_path)
-# wav_to_spec.process_directory()
-# wav_to_spec.save_npz()
-# wav_to_spec.visualize_random_spectrogram()
+# if __name__ == "__main__":
+#     main()

@@ -15,8 +15,10 @@ class Trainer():
         self.patience = patience
         self.use_tqdm = use_tqdm
         self.moving_avg_window = moving_avg_window  # Window size for moving average
-        self.class_weights = train_loader.dataset.class_weights.to(device)
 
+        # self.class_weights = train_loader.dataset.class_weights.to(device)
+        self.class_weights = None
+        
     def frame_error_rate(self, y_pred, y_true):
        # Threshold y_pred at 0.5 to obtain binary predictions
         y_pred_binary = (y_pred > 0.5).float()
