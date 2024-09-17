@@ -11,7 +11,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy model configuration and weights
-COPY files/sorter-1 /app/files/sorter-1
+COPY files /app/files
 
 # Copy your source code files into the container
 COPY src /app/src
