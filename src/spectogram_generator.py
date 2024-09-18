@@ -8,7 +8,8 @@ import numpy as np
 import soundfile as sf
 from scipy.signal import ellip, filtfilt, spectrogram, windows
 from tqdm import tqdm
-import matplotlib.pyplot as plt
+import time
+import librosa
 
 
 class WavtoSpec:
@@ -50,18 +51,20 @@ class WavtoSpec:
     def convert_to_spectrogram(
         self,
         file_path: str,
-        save_npz: bool = False,
+        song_detection_json_path: Optional[str] = None,
         min_length_ms: int = 500,
-        min_timebins: int = 200
+        min_timebins: int = 200,
+        save_npz: bool = True
     ) -> Tuple[Optional[np.ndarray], Optional[List[Tuple[float, float]]], Optional[Dict[str, List[Tuple[float, float]]]]]:
         try:
+            # Initialization and setup code here
+
             with sf.SoundFile(file_path, 'r') as wav_file:
                 samplerate = wav_file.samplerate
                 data = wav_file.read(dtype='int16')
                 if wav_file.channels > 1:
                     data = data[:, 0]
 
-            # Skip small files (less than min_length_ms)
             length_in_ms = (len(data) / samplerate) * 1000
             if length_in_ms < min_length_ms:
                 print(f"File {file_path} is below the length threshold and will be skipped.")
@@ -69,49 +72,40 @@ class WavtoSpec:
 
             file_name = os.path.basename(file_path)
 
-            # Check for vocalization data
-            if self.use_csv:
+            if self.use_csv or song_detection_json_path is not None:
                 vocalization_data, phrase_labels = self.check_vocalization(
                     file_name=file_name,
                     data=data,
-                    samplerate=samplerate
+                    samplerate=samplerate,
+                    song_detection_json_path=song_detection_json_path
                 )
                 if not vocalization_data:
-                    print(f"File {file_path} skipped due to no vocalization data.")
+                    print("File skipped due to no vocalization data.")
                     return None, None, None
             else:
                 vocalization_data = [(0, len(data) / samplerate)]
                 phrase_labels = {}
 
-            # Apply high-pass filter
             b, a = ellip(5, 0.2, 40, 500 / (samplerate / 2), 'high')
-            filtered_data = filtfilt(b, a, data)
+            data = filtfilt(b, a, data)
 
-            # Compute spectrogram
-            frequencies, times, Sxx = spectrogram(
-                filtered_data,
-                fs=samplerate,
-                window=windows.gaussian(self.nfft, std=self.nfft / 8),
-                nperseg=self.nfft,
-                noverlap=self.nfft - self.step_size,
-                scaling='density',
-                mode='magnitude'
-            )
+            hop_length = self.step_size
+            window = 'hann'
+            n_fft = self.nfft
+            Sxx = librosa.stft(data.astype(float), n_fft=n_fft, hop_length=hop_length, window=window)
+            Sxx_log = librosa.amplitude_to_db(np.abs(Sxx), ref=np.max)
 
-            Sxx_log = 10 * np.log10(Sxx + 1e-6)
-
-            # Convert phrase labels to timebins
-            labels = np.zeros(times.size, dtype=int)
+            labels = np.zeros(Sxx.shape[1], dtype=int)
             for label, intervals in phrase_labels.items():
                 for start_sec, end_sec in intervals:
-                    start_bin = np.searchsorted(times, start_sec)
-                    end_bin = np.searchsorted(times, end_sec)
+                    start_bin = np.searchsorted(np.arange(Sxx.shape[1]) * hop_length / samplerate, start_sec)
+                    end_bin = np.searchsorted(np.arange(Sxx.shape[1]) * hop_length / samplerate, end_sec)
                     labels[start_bin:end_bin] = int(label)
 
-            if times.size >= min_timebins:
+            if Sxx.shape[1] >= min_timebins:
                 for i, (start_sec, end_sec) in enumerate(vocalization_data):
-                    start_bin = np.searchsorted(times, start_sec)
-                    end_bin = np.searchsorted(times, end_sec)
+                    start_bin = np.searchsorted(np.arange(Sxx.shape[1]) * hop_length / samplerate, start_sec)
+                    end_bin = np.searchsorted(np.arange(Sxx.shape[1]) * hop_length / samplerate, end_sec)
 
                     segment_Sxx_log = Sxx_log[:, start_bin:end_bin]
                     segment_labels = labels[start_bin:end_bin]
@@ -127,7 +121,6 @@ class WavtoSpec:
                         print(f"Segment {i} spectrogram, vocalization data, and labels saved to {segment_spec_file_path}")
 
                 return Sxx_log, vocalization_data, labels
-
             else:
                 print(f"Spectrogram for {file_path} has less than {min_timebins} timebins and will not be saved.")
                 return None, None, None
@@ -136,17 +129,14 @@ class WavtoSpec:
             print(f"Error processing {file_path}: {e}")
             return None, None, None
 
-        finally:
-            plt.close('all')
-            gc.collect()
-
     def check_vocalization(
         self,
         file_name: str,
         data: np.ndarray,
-        samplerate: int
+        samplerate: int,
+        song_detection_json_path: Optional[str] = None
     ) -> Tuple[List[Tuple[float, float]], Dict[str, List[Tuple[float, float]]]]:
-        if not self.use_csv:
+        if not self.use_csv and song_detection_json_path is None:
             return [(0, len(data) / samplerate)], {}
 
         # Assuming the CSV file contains mappings for vocalizations
