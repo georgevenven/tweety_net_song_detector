@@ -48,8 +48,5 @@ def split_dataset(folder_path, train_ratio, train_folder_dest, test_folder_dest,
             shutil.move(src_file_path, dest_file_path)
         else:
             shutil.copy2(src_file_path, dest_file_path)
-
-# Example usage with moving files
-# split_dataset('/media/george-vengrovski/Extreme SSD/yarden_data/llb3_george_specs', 0.8, '/media/george-vengrovski/Extreme SSD/yarden_data/llb3_train', '/media/george-vengrovski/Extreme SSD/yarden_data/llb3_test', move_files=False)
-# split_dataset('/media/george-vengrovski/Extreme SSD/yarden_data/llb11_george_specs', 0.8, '/media/george-vengrovski/Extreme SSD/yarden_data/llb11_train', '/media/george-vengrovski/Extreme SSD/yarden_data/llb11_test', move_files=False)
+            
 split_dataset('/media/george-vengrovski/disk2/training_song_detector/labeled_song_dataset', 0.8, '/media/george-vengrovski/disk2/training_song_detector/labeled_song_dataset/train', '/media/george-vengrovski/disk2/training_song_detector/labeled_song_dataset/test', move_files=True)

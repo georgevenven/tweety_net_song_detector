@@ -85,24 +85,35 @@ class Inference:
 
         if self.create_json and not self.separate_json:
             self.json_path = os.path.join(self.output_path, 'onset_offset_results.json')
-            self.create_json_file()
+            if not os.path.exists(self.json_path):
+                self.create_json_file()
+
 
     def create_json_file(self) -> None:
         with open(self.json_path, 'w') as jsonfile:
             json.dump([], jsonfile, indent=4)
 
     def sort_all_songs(self) -> None:
+        processed_files = set()
+        if not self.separate_json and os.path.exists(self.json_path):
+            with open(self.json_path, 'r') as jsonfile:
+                data = json.load(jsonfile)
+                processed_files = {entry['filename'] for entry in data}
+
         total_songs = sum(len(files) for _, _, files in os.walk(self.input_path))
         with tqdm(total=total_songs, desc="Processing songs") as pbar:
             for root, _, files in os.walk(self.input_path):
                 for file in files:
-                    if file.lower().endswith('.wav'):
+                    if file.lower().endswith('.wav') and file not in processed_files:
                         song_path = os.path.join(root, file)
                         try:
                             self.sort_single_song(song_path)
                             print(f"Processed {file}")
                         except Exception as e:
                             print(f"Error processing {file}: {e}")
+                        pbar.update(1)
+                    else:
+                        print(f"already processed {file}")
                         pbar.update(1)
 
         if not self.separate_json:
