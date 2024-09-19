@@ -47,6 +47,7 @@ class Inference:
         separate_json: bool = False,
         step_size: int = 119,
         nfft: int = 1024,
+        dump_interval: int = 1000  # New parameter with default value
     ):
         self.input_path = input_path
         self.output_path = output_path if output_path else get_default_output_path()
@@ -58,6 +59,7 @@ class Inference:
         self.separate_json = separate_json
         self.step_size = step_size
         self.nfft = nfft
+        self.dump_interval = dump_interval  # Initialize the new parameter
 
         self.device = torch.device("cpu") if aws_mode else torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -83,28 +85,40 @@ class Inference:
         if plot_spec_results:
             os.makedirs(os.path.join(self.output_path, 'specs'), exist_ok=True)
 
+        self.processed_data = []  # In-memory list to store processed data
         if self.create_json and not self.separate_json:
             self.json_path = os.path.join(self.output_path, 'onset_offset_results.json')
             if not os.path.exists(self.json_path):
                 self.create_json_file()
-
+            self.processed_files = self.load_processed_files()  # Load processed files into a set
 
     def create_json_file(self) -> None:
         with open(self.json_path, 'w') as jsonfile:
             json.dump([], jsonfile, indent=4)
 
-    def sort_all_songs(self) -> None:
-        processed_files = set()
+    def load_processed_files(self) -> set:
+        """Load the set of processed files from the JSON file."""
         if not self.separate_json and os.path.exists(self.json_path):
             with open(self.json_path, 'r') as jsonfile:
                 data = json.load(jsonfile)
-                processed_files = {entry['filename'] for entry in data}
+                self.processed_data = data  # Load existing data into the in-memory list
+                return {entry['filename'] for entry in data}
+        return set()
 
-        total_songs = sum(len(files) for _, _, files in os.walk(self.input_path))
+    def count_total_songs(self) -> int:
+        """Count the total number of .wav files in the input directory."""
+        total_songs = 0
+        for root, _, files in os.walk(self.input_path):
+            total_songs += sum(1 for file in files if file.lower().endswith('.wav'))
+        return total_songs
+
+    def sort_all_songs(self) -> None:
+        total_songs = self.count_total_songs()
+        processed_count = 0
         with tqdm(total=total_songs, desc="Processing songs") as pbar:
             for root, _, files in os.walk(self.input_path):
                 for file in files:
-                    if file.lower().endswith('.wav') and file not in processed_files:
+                    if file.lower().endswith('.wav') and file not in self.processed_files:
                         song_path = os.path.join(root, file)
                         try:
                             self.sort_single_song(song_path)
@@ -112,12 +126,18 @@ class Inference:
                         except Exception as e:
                             print(f"Error processing {file}: {e}")
                         pbar.update(1)
+                        processed_count += 1
+
+                        # Periodically dump JSON data every dump_interval files
+                        if processed_count % self.dump_interval == 0:
+                            self.dump_json_data()
+                            print(f"Intermediate results saved to {self.json_path}")
                     else:
                         print(f"already processed {file}")
                         pbar.update(1)
-
         if not self.separate_json:
-            print(f"Results saved to {self.json_path}")
+            self.dump_json_data()  # Final dump of the in-memory list to the JSON file
+            print(f"Final results saved to {self.json_path}")
 
     def sort_single_song(self, song_path: str, return_json: bool = False) -> Optional[str]:
         wav_to_spec = WavtoSpec(
@@ -300,24 +320,27 @@ class Inference:
         print(f"Average time per file: {total_time / len(audio):.2f} seconds")
 
     def update_json(self, onsets_offsets: List[Tuple[int, int, float, float]], song_name: str, spec_parameters: Dict[str, Any]) -> None:
-        with open(self.json_path, 'r+') as jsonfile:
-            data = json.load(jsonfile)
-            data.append({
-                'filename': song_name,
-                'song_present': bool(onsets_offsets),
-                'segments': [
-                    {
-                        'onset_timebin': onset_timebin,
-                        'offset_timebin': offset_timebin,
-                        'onset_ms': onset_ms,
-                        'offset_ms': offset_ms
-                    }
-                    for onset_timebin, offset_timebin, onset_ms, offset_ms in onsets_offsets
-                ],
-                'spec_parameters': spec_parameters
-            })
-            jsonfile.seek(0)
-            json.dump(data, jsonfile, indent=4)
+        new_entry = {
+            'filename': song_name,
+            'song_present': bool(onsets_offsets),
+            'segments': [
+                {
+                    'onset_timebin': onset_timebin,
+                    'offset_timebin': offset_timebin,
+                    'onset_ms': onset_ms,
+                    'offset_ms': offset_ms
+                }
+                for onset_timebin, offset_timebin, onset_ms, offset_ms in onsets_offsets
+            ],
+            'spec_parameters': spec_parameters
+        }
+        self.processed_data.append(new_entry)  # Add new entry to the in-memory list
+        self.processed_files.add(song_name)  # Update the set
+
+    def dump_json_data(self) -> None:
+        """Dump the in-memory list to the JSON file."""
+        with open(self.json_path, 'w') as jsonfile:
+            json.dump(self.processed_data, jsonfile, indent=4)
 
     @staticmethod
     def detect_onsets_offsets(song_status: np.ndarray, timebin_duration_ms: float) -> List[Tuple[int, int, float, float]]:
@@ -398,6 +421,7 @@ def main() -> None:
                         help="Create separate JSON files for each song")
     parser.add_argument("--step_size", type=int, default=119, help="Step size for spectrogram generation")
     parser.add_argument("--nfft", type=int, default=1024, help="NFFT for spectrogram generation")
+    parser.add_argument("--dump_interval", type=int, default=1000, help="Interval for periodic JSON dumping")
     args = parser.parse_args()
 
     aws_mode = args.mode == "aws"
@@ -462,7 +486,8 @@ def main() -> None:
             separate_json=args.separate_json,
             step_size=args.step_size,
             nfft=args.nfft,
-            device=device
+            device=device,
+            dump_interval=args.dump_interval
         )
         sorter.sort_all_songs()
 
