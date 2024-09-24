@@ -102,10 +102,9 @@ def load_model(config_path, weight_path=None, map_location=torch.device('cpu')):
         print("Model loaded with randomly initialized weights.")
 
     return model
-
 def save_model_config_and_weights(trainer, config, model_name):
     # Create directory for the model if it doesn't exist
-    model_dir = os.path.join('/home/george-vengrovski/Documents/projects/tweety_net_song_detector/files', model_name)
+    model_dir = os.path.join(os.path.dirname(__file__), '..', 'files', model_name)
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     
@@ -120,4 +119,3 @@ def save_model_config_and_weights(trainer, config, model_name):
     
     print(f'Model config saved to {config_path}')
     print(f'Model weights saved to {weights_path}')
-
