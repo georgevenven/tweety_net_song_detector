@@ -5,9 +5,9 @@ import torch
 from tqdm import tqdm  # Import tqdm for progress tracking
 
 def moving_average(signal, window_size):
-    """Compute the moving average of the given signal with the specified window size."""
-    cumsum_vec = np.cumsum(np.insert(signal, 0, 0)) 
-    return (cumsum_vec[window_size:] - cumsum_vec[:-window_size]) / window_size
+    """Compute the moving average of the given signal with the specified window size using convolution."""
+    kernel = np.ones(window_size) / window_size
+    return np.convolve(signal, kernel, mode='same')
 
 def post_process_segments(smoothed_song, threshold, min_length, pad_song):
     """Post-process the smoothed song to adjust segments shorter than min_length and apply padding."""
@@ -122,13 +122,13 @@ def plot_spectrogram_with_processed_song(directory, file_name, spectrogram, smoo
     ax.set_xlabel('Time Bins')
 
     # Plot smoothed classification line
-    smoothed_times = np.arange(len(smoothed_song)) + 50  # Offset for alignment
+    smoothed_times = np.arange(len(smoothed_song))
     ax.plot(smoothed_times, smoothed_song * (spectrogram.shape[0] - 1), color='magenta', label='Smoothed Classification', alpha=0.7)
 
     # Add color bar below spectrogram based on processed song
     for i in range(len(processed_song)):
         color = 'red' if processed_song[i] > 0 else 'blue'
-        ax.axhspan(ymin=-5, ymax=0, xmin=(i + 50) / len(smoothed_song), xmax=(i + 51) / len(smoothed_song), color=color)
+        ax.axhspan(ymin=-5, ymax=0, xmin=(i) / len(smoothed_song), xmax=(i + 1) / len(smoothed_song), color=color)
 
     ax.set_ylim(bottom=-5)  # Adjust y-axis to include the new bar
     ax.legend(loc='upper right')
