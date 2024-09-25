@@ -63,18 +63,32 @@ def extract_audio_tracks_pydub(mp4_file_path, output_dir, segment_length=10):
     finally:
         logging.info("Finished processing.")
 
+def process_folder_of_mp4s(input_dir, output_dir, segment_length=10):
+    """
+    Processes all MP4 files in the specified input directory.
+
+    Parameters:
+    - input_dir (str): Directory containing MP4 files.
+    - output_dir (str): Directory where the audio segments will be saved.
+    - segment_length (int): Length of each audio segment in seconds.
+    """
+    for file_name in os.listdir(input_dir):
+        if file_name.endswith(".mp4"):
+            mp4_file_path = os.path.join(input_dir, file_name)
+            extract_audio_tracks_pydub(mp4_file_path, output_dir, segment_length)
+
 if __name__ == "__main__":
-    # Define the input MP4 file and output directory
-    mp4_file_path = "/home/george-vengrovski/Downloads/1725054582-USA5499-USA5497.mp4"
-    output_dir = "/media/george-vengrovski/disk2/canary/aws_data"
+    # Define the input directory containing MP4 files and output directory
+    input_dir = "/media/george-vengrovski/disk2/canary/aws_recordings"
+    output_dir = "/media/george-vengrovski/disk2/canary/aws_wav"
     
-    # Verify that the input file exists
-    if not os.path.isfile(mp4_file_path):
-        logging.error(f"The input file does not exist: {mp4_file_path}")
+    # Verify that the input directory exists
+    if not os.path.isdir(input_dir):
+        logging.error(f"The input directory does not exist: {input_dir}")
     else:
         # Verify that the output directory is writable
         if not os.access(output_dir, os.W_OK):
             logging.error(f"The output directory is not writable: {output_dir}")
         else:
-            # Extract audio segments
-            extract_audio_tracks_pydub(mp4_file_path, output_dir)
+            # Process all MP4 files in the input directory
+            process_folder_of_mp4s(input_dir, output_dir)
