@@ -24,7 +24,7 @@ warnings.filterwarnings("ignore")  # Suppress warnings for cleaner output
 
 def get_default_model_path() -> str:
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(script_dir, "..", "files", "sorter-specs-with-nothreshold-0.1")
+    return os.path.join(script_dir, "..", "files", "canary_fall_nerve_llb-.01")
 
 
 def get_default_output_path() -> str:
