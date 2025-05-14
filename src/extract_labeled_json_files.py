@@ -17,8 +17,8 @@ def copy_files_from_json(json_file, source_dir, target_dir):
     print(f"Copied {len(file_list)} files to {target_dir}")
 
 # Usage
-json_file = '/media/george-vengrovski/disk2/training_song_detector/nerve_transection_labeled/labeled_files.json'
-source_dir = '/media/george-vengrovski/disk2/training_song_detector/nerve_transection_labeled'
-target_dir = '/media/george-vengrovski/disk2/training_song_detector/labeled_song_dataset'
+json_file = '/media/george-vengrovski/disk2/training_bengalese_finch_detector/combined_spec/labeled_files.json'
+source_dir = '/media/george-vengrovski/disk2/training_bengalese_finch_detector/combined_spec'
+target_dir = '/media/george-vengrovski/disk2/training_bengalese_finch_detector/bf_labeled'
 
 copy_files_from_json(json_file, source_dir, target_dir)

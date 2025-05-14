@@ -112,8 +112,11 @@ class WavtoSpec:
                     segment_vocalization = np.ones(end_bin - start_bin, dtype=int)
 
                     if save_npz and self.dst_dir:
-                        spec_filename = os.path.splitext(os.path.basename(file_path))[0]
-                        segment_spec_file_path = os.path.join(self.dst_dir, f"{spec_filename}_segment_{i}.npz")
+                        segment_spec_file_path = os.path.join(
+                            self.dst_dir if self.dst_dir else os.path.dirname(file_path),
+                            f"{os.path.splitext(file_name)[0]}_segment_{i}.npz"
+                        )
+                        os.makedirs(self.dst_dir, exist_ok=True)
                         np.savez(segment_spec_file_path,
                                  s=segment_Sxx_log,
                                  vocalization=segment_vocalization,

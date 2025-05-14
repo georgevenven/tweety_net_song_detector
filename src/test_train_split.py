@@ -49,4 +49,4 @@ def split_dataset(folder_path, train_ratio, train_folder_dest, test_folder_dest,
         else:
             shutil.copy2(src_file_path, dest_file_path)
             
-split_dataset('/media/george-vengrovski/disk2/training_song_detector/labeled_song_dataset', 0.8, '/media/george-vengrovski/disk2/training_song_detector/labeled_song_dataset/train', '/media/george-vengrovski/disk2/training_song_detector/labeled_song_dataset/test', move_files=True)
+split_dataset('/media/george-vengrovski/disk2/training_bengalese_finch_detector/bf_labeled', 0.8, '/media/george-vengrovski/disk2/training_bengalese_finch_detector/train', '/media/george-vengrovski/disk2/training_bengalese_finch_detector/test', move_files=True)
